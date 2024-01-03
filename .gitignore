@@ -1,0 +1,11 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+*.zip
+*.png
+
+# netCDF data and other spatial data
+*.nc
+*.grd
+*.bgm
