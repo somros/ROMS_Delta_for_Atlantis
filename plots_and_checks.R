@@ -184,11 +184,11 @@ dat_temp_delta %>%
 # pick one year and plot it before and after the delta correction
 # changes should be consistent with the delta shown above
 # pre-correction
-original_proj_file <- "data/projection/goa_roms_temp_2080.nc"
+original_proj_file <- "data/projection/goa_roms_temp_2081.nc"
 original_proj_nc <- nc_open(original_proj_file)
 
 # corrected
-corrected_proj_file <- "data/projection_corrected/goa_roms_temp_2080.nc"
+corrected_proj_file <- "data/projection_corrected/goa_roms_temp_2081.nc"
 corrected_proj_nc <- nc_open(corrected_proj_file)
 
 # pull variables with tidync
@@ -243,3 +243,47 @@ dat_proj %>%
 # 1. Smooth deltas by assigning the value of the monthly delta to the middle of each month, and then interpolate for the days
 # 2. This option makes sense to me: if in month A the delta was +1 (i.e., the hindcast was 1 C warmer than the historical),
 # and in month A+1 the delta was -1, one may assume that the delta has changed smoothly over time. This may or may not be true
+
+# compare post correction 2080 to 2014
+# corrected
+hindcast_2014_file <- "data/hindcast/goa_temp_2014.nc"
+hindcast_2014_nc <- nc_open(hindcast_2014_file)
+
+# pull variables with tidync
+temp_2014 <- tidync(hindcast_2014_file) 
+
+these_vars <- hyper_grids(temp_2014) %>% # all available grids in the ROMS ncdf
+  pluck("grid") %>% # for each grid, pull out all the variables associated with that grid and make a reference table
+  purrr::map_df(function(x){
+    temp_2014 %>% activate(x) %>% hyper_vars() %>% 
+      mutate(grd=x)
+  })
+
+grids <- these_vars %>% filter(name=="temperature") %>% pluck('grd')
+
+dat_temp_2014 <- temp_2014 %>% activate(grids) %>% hyper_tibble()
+
+# numbering of b and z starts from 1 - change
+dat_temp_2014 <- dat_temp_2014 %>% 
+  mutate(b = b - 1, z = z - 1, run = "hw_2014")
+
+
+dat_proj <- rbind(dat_temp_c, dat_temp_2014)
+# view
+# summarize in space
+# should weight these averages by cell volume for a better representation, but this is only visual
+dat_proj %>%
+  group_by(run,t) %>%
+  summarize(meantemp = mean(temperature), linewidth = 1) %>%
+  ggplot()+
+  geom_line(aes(x = t, y = meantemp, color = run))+
+  theme_bw()
+
+# remember: 6 is the sediment, 0 is the layer above the sediment, and then up to the surface
+dat_proj %>%
+  filter(b %in% b_toplot) %>%
+  ggplot()+
+  geom_line(aes(x = t, y = temperature, color = factor(z), linetype = run), linewidth = 1)+
+  theme_bw()+
+  facet_wrap(~b)
+
