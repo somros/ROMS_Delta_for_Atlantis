@@ -17,10 +17,10 @@ library(tidync)
 library(lubridate)
 
 # merge hindcast files
-# shell("\"C:\\Users\\Alberto Rovellini\\CDO\\cdo.exe\" mergetime data\\hindcast\\*.nc data\\hindcast\\hindcast_merged.nc")
+shell("\"C:\\Users\\Alberto Rovellini\\CDO\\cdo.exe\" mergetime data\\hindcast\\*.nc data\\hindcast\\hindcast_merged.nc")
 
 # merge the historical
-# shell("\"C:\\Users\\Alberto Rovellini\\CDO\\cdo.exe\" mergetime data\\historical\\*.nc data\\historical\\historical_merged.nc")
+shell("\"C:\\Users\\Alberto Rovellini\\CDO\\cdo.exe\" mergetime data\\historical\\*.nc data\\historical\\historical_merged.nc")
 
 # what variable are we handling?
 this_variable <- "temperature"
@@ -38,6 +38,11 @@ historical_file <- "data/historical/historical_merged.nc"
 
 # function
 make_delta_array <- function(variable, hindcast=TRUE, mean=TRUE, leap=FALSE){
+  
+  # variable = "temperature"
+  # hindcast=TRUE
+  # mean=TRUE
+  # leap=FALSE
   
   # set file
   if(hindcast){
@@ -75,34 +80,51 @@ make_delta_array <- function(variable, hindcast=TRUE, mean=TRUE, leap=FALSE){
     mutate(t = t + file_origin) %>%
     rename(b = y, z = x)
   
-  # handle time: go from date to julian day and time of the day (12:00 vs 00:00)
-  # daylight saving causes issues with grouping later - change 01:00 to 00:00 and 13:00 to 12:00
+  # handle time
+  # the time dimension in the transfromed ROMS forcings has a lot of obnoxious properties
+  # The time series begins at 12:00 of Jan 1st
+  # leap years cause problems, remove Feb 29 from the data
   dat_temp <- dat_temp %>%
-    mutate(jday = yday(t),
-           tod  = format(t, "%H:%M:%S")) %>%
-    mutate(tod = str_replace_all(tod, "13:00:00", "12:00:00"),
-           tod = str_replace_all(tod, "01:00:00", "00:00:00"))
+    mutate(year = year(t),
+           month = month(t),
+           day = day(t),
+           tod  = format(t, "%H:%M:%S")) 
   
-  # Group by box, layer, julian day, and summarize (mean and sd as separate data frames)
+  # add a first time step for the correct indexing of the data
+  filler <- dat_temp %>% 
+    filter(year == 1991, month == 1, day == 1) %>%
+    mutate(t = t - hours(12),
+           tod = format(t, "%H:%M:%S"))
+  
+  dat_temp <- rbind(filler, dat_temp) %>%
+    filter(t < max(t)) # remove very last time step
+  
+  # remove Feb 29
+  dat_temp <- dat_temp %>%
+    filter(!(month == 2 & day == 29))
+  
+  # group by year, arrange by date, assign a time step
+  dat_temp <- dat_temp %>%
+    group_by(year, b, z) %>%
+    mutate(ts = row_number()) %>%
+    ungroup()
+  
+  # Group by box, layer, time step, and summarize (mean and sd as separate data frames)
   if(mean){
     aggregated_df <- dat_temp %>%
-      group_by(b, z, jday, tod) %>%
+      group_by(b, z, ts) %>%
       summarise(!!sym(variable) := mean(!!sym(variable))) 
   } else {
     aggregated_df <- dat_temp %>%
-      group_by(b, z, jday, tod) %>%
+      group_by(b, z, ts) %>%
       summarise(!!sym(variable) := sd(!!sym(variable))) 
   }
   
-  # add time step index and clean up
-  # In addition: for the purpose of applying the correct delta to the projections, 
-  # the delta for Jan 1 00:00 (jday = 1, tod = 00:00) must be the last time step
+  # for the purpose of applying the correct delta to the projections, 
+  # the delta for Jan 1 00:00 (jday = 1, tod = 00:00) must be the last time step, because annual files start at noon of Jan 1 and end at midnight of Jan 1 of the following year
   aggregated_df <- aggregated_df %>%
-    group_by(jday, tod) %>%
-    mutate(ts = cur_group_id()) %>%
-    ungroup() %>%
     mutate(ts = ifelse(ts == 1, (max(ts)+1), ts)) %>% # put the first time step last
-    mutate(ts = ts -1) %>%
+    mutate(ts = ts - 1) %>%
     arrange(ts, b, z) %>%
     dplyr::select(ts, b, z, temperature)
   
@@ -116,17 +138,43 @@ make_delta_array <- function(variable, hindcast=TRUE, mean=TRUE, leap=FALSE){
   aggregated_df_complete <- all_cells %>%
     left_join(aggregated_df) 
   
-  # for leap years, eliminate ts for Feb 29
-  # considering that ts starts on Jan 1 12:00, we have:
-  # (31*2)-1 = 61 ts for jan
-  # 28*2 = 56 ts for Feb
-  # so, the first ts to drop is Feb 29 00:00, which is:
-  # 61+56+1=(118,119)
+  # for leap years, duplicate Feb 28
   
-  if(!leap){
-    aggregated_df_complete <- aggregated_df_complete %>%
-      filter(ts != 118, ts != 119)
-    }
+  if(leap){
+    tmp_1 <- aggregated_df_complete %>%
+      filter(ts < 118)
+    
+    tmp_2 <- aggregated_df_complete %>%
+      filter(ts %in% c(116,117)) %>%
+      mutate(ts = ts + 2) # add 2 time steps for Feb 29
+    
+    tmp_3 <- aggregated_df_complete %>%
+      filter(ts >= 118) %>%
+      mutate(ts = ts + 2) # add 2 time steps 
+    
+    aggregated_df_complete <- rbind(tmp_1, tmp_2, tmp_3)
+    
+  }
+  
+  # there is an annoying blip at the last 2 time steps
+  # It seems to be mostly due to the hindcast
+  # I do not fully understand why it is there, but to smooth it out use the delta from before the blip
+  # moving the first time step to the end of the time series may be part of the cause, but this does not explain the second-to-last point
+  # Future revisions should address it, but this is a close enough approximation for the purpose of delta-correcting
+  tmp_1 <- aggregated_df_complete %>%
+    filter(ts < 728)
+  tmp_2 <- aggregated_df_complete %>%
+    filter(ts == 727)
+  
+  if(leap){reps <- 5} else {reps <- 3} # number of time steps to pad depending on whether this is a leap year
+  tmp_4 <- data.frame()
+  for(i in 1:reps) {
+    tmp_3 <- tmp_2
+    tmp_3$ts <- 727 + i
+    tmp_4 <- rbind(tmp_4, tmp_3)
+  }
+  
+  aggregated_df_complete <- rbind(tmp_1, tmp_4)
   
   # Reshape the data frame to a wider format for each 'ts'
   ts_list <- aggregated_df_complete %>%
@@ -156,20 +204,20 @@ mean_hind <- make_delta_array(variable = this_variable,
                               mean = T,
                               leap = F)
 
-sd_hind <- make_delta_array(variable = this_variable,
-                              hindcast = T,
-                              mean = F,
-                              leap = F)
+# sd_hind <- make_delta_array(variable = this_variable,
+#                               hindcast = T,
+#                               mean = F,
+#                               leap = F)
 
 mean_hist <- make_delta_array(variable = this_variable,
                               hindcast = F,
                               mean = T,
                               leap = F)
 
-sd_hist <- make_delta_array(variable = this_variable,
-                              hindcast = F,
-                              mean = F,
-                              leap = F)
+# sd_hist <- make_delta_array(variable = this_variable,
+#                               hindcast = F,
+#                               mean = F,
+#                               leap = F)
 
 # for leap years
 mean_hind_leap <- make_delta_array(variable = this_variable,
@@ -177,28 +225,20 @@ mean_hind_leap <- make_delta_array(variable = this_variable,
                               mean = T,
                               leap = T)
 
-sd_hind_leap <- make_delta_array(variable = this_variable,
-                            hindcast = T,
-                            mean = F,
-                            leap = T)
+# sd_hind_leap <- make_delta_array(variable = this_variable,
+#                             hindcast = T,
+#                             mean = F,
+#                             leap = T)
 
 mean_hist_leap <- make_delta_array(variable = this_variable,
                               hindcast = F,
                               mean = T,
                               leap = T)
 
-sd_hist_leap <- make_delta_array(variable = this_variable,
-                            hindcast = F,
-                            mean = F,
-                            leap = T)
-
-# xx
-check <- mean_hind - mean_hist
-check <- check[,,1:250]
-check_df <- data.frame("ts" = 1:(dim(check)[3]), "mean_delta" = NA)
-for(i in check_df$ts){
-  check_df[i,2] <- mean(check[,,i], na.rm = T)
-}
+# sd_hist_leap <- make_delta_array(variable = this_variable,
+#                             hindcast = F,
+#                             mean = F,
+#                             leap = T)
 
 ########################################################################################
 
@@ -213,7 +253,6 @@ for(i in check_df$ts){
 # Scaling by the ratio of the variances does not work, not on 12-hourly files (some large differences in varainces can make the scalar very big)
 
 proj_files <- list.files("data/projection/", full.names = T)
-
 
 for(i in 1:length(proj_files)){
   

@@ -82,101 +82,101 @@ dat %>%
   theme_bw()+
   facet_wrap(~b)
 
-# YMONMEAN ----------------------------------------------------------------
-# plot monthly means and compare to plot above
-hind_ymonmean_file <- "data/hindcast/hindcast_ymonmean.nc"
-hind_ymonmean_nc <- nc_open(hind_ymonmean_file)
-
-# historical
-hist_ymonmean_file <- "data/historical/historical_ymonmean.nc"
-hist_ymonmean_nc <- nc_open(hist_ymonmean_file)
-
-# pull variables with tidync
-temp_hind_ym <- tidync(hind_ymonmean_file) 
-temp_hist_ym <- tidync(hist_ymonmean_file)
-
-these_vars <- hyper_grids(temp_hind_ym) %>% # all available grids in the ROMS ncdf
-  pluck("grid") %>% # for each grid, pull out all the variables associated with that grid and make a reference table
-  purrr::map_df(function(x){
-    temp_hind_ym %>% activate(x) %>% hyper_vars() %>% 
-      mutate(grd=x)
-  })
-
-grids <- these_vars %>% filter(name=="temperature") %>% pluck('grd')
-
-dat_temp_hind_ym <- temp_hind_ym %>% activate(grids) %>% hyper_tibble()
-dat_temp_hist_ym <- temp_hist_ym %>% activate(grids) %>% hyper_tibble()
-
-# numbering of b and z starts from 1 - change
-dat_temp_hind_ym <- dat_temp_hind_ym %>% 
-  mutate(b = y - 1, z = x - 1, run = "hind") %>%
-  select(-x,-y)
-
-dat_temp_hist_ym <- dat_temp_hist_ym %>% 
-  mutate(b = y - 1, z = x - 1, run = "hist") %>%
-  select(-x,-y)
-
-dat_ym <- rbind(dat_temp_hind_ym, dat_temp_hist_ym)
-# view
-# summarize in space
-dat_ym %>%
-  group_by(run,t) %>%
-  summarize(meantemp = mean(temperature)) %>%
-  ggplot()+
-  geom_line(aes(x = t, y = meantemp, color = run), linewidth = 1)+
-  theme_bw()
-
-# let's plot some random boxes: 
-# remember: 6 is the sediment, 0 is the layer above the sediment, and then up to the surface
-
-dat_ym %>%
-  filter(b %in% b_toplot) %>%
-  ggplot()+
-  geom_line(aes(x = t, y = temperature, color = factor(z), linetype = run), linewidth = 1)+
-  theme_bw()+
-  facet_wrap(~b)
-
-# MONTHLY DELTAS ----------------------------------------------------------
-monthly_delta_file <- "data/delta/monthly_delta.nc"
-delta_nc <- nc_open(monthly_delta_file)
-
-# pull variables with tidync
-temp_delta <- tidync(monthly_delta_file) 
-
-these_vars <- hyper_grids(temp_delta) %>% # all available grids in the ROMS ncdf
-  pluck("grid") %>% # for each grid, pull out all the variables associated with that grid and make a reference table
-  purrr::map_df(function(x){
-    temp_delta %>% activate(x) %>% hyper_vars() %>% 
-      mutate(grd=x)
-  })
-
-grids <- these_vars %>% filter(name=="temperature") %>% pluck('grd')
-
-dat_temp_delta <- temp_delta %>% activate(grids) %>% hyper_tibble()
-
-# numbering of b and z starts from 1 - change
-dat_temp_delta <- dat_temp_delta %>% 
-  mutate(b = y - 1, z = x - 1) %>%
-  select(-x,-y)
-
-# view
-# summarize in space
-dat_temp_delta %>%
-  group_by(t) %>%
-  summarize(meandelta = mean(temperature), linewidth = 1) %>%
-  ggplot()+
-  geom_bar(aes(x = t, y = meandelta), stat = "identity")+
-  theme_bw()
-
-# let's plot some random boxes: 
-# remember: 6 is the sediment, 0 is the layer above the sediment, and then up to the surface
-
-dat_temp_delta %>%
-  filter(b %in% b_toplot) %>%
-  ggplot()+
-  geom_line(aes(x = t, y = temperature, color = factor(z)), linewidth = 1)+
-  theme_bw()+
-  facet_wrap(~b)
+# # YMONMEAN ----------------------------------------------------------------
+# # plot monthly means and compare to plot above
+# hind_ymonmean_file <- "data/hindcast/hindcast_ymonmean.nc"
+# hind_ymonmean_nc <- nc_open(hind_ymonmean_file)
+# 
+# # historical
+# hist_ymonmean_file <- "data/historical/historical_ymonmean.nc"
+# hist_ymonmean_nc <- nc_open(hist_ymonmean_file)
+# 
+# # pull variables with tidync
+# temp_hind_ym <- tidync(hind_ymonmean_file) 
+# temp_hist_ym <- tidync(hist_ymonmean_file)
+# 
+# these_vars <- hyper_grids(temp_hind_ym) %>% # all available grids in the ROMS ncdf
+#   pluck("grid") %>% # for each grid, pull out all the variables associated with that grid and make a reference table
+#   purrr::map_df(function(x){
+#     temp_hind_ym %>% activate(x) %>% hyper_vars() %>% 
+#       mutate(grd=x)
+#   })
+# 
+# grids <- these_vars %>% filter(name=="temperature") %>% pluck('grd')
+# 
+# dat_temp_hind_ym <- temp_hind_ym %>% activate(grids) %>% hyper_tibble()
+# dat_temp_hist_ym <- temp_hist_ym %>% activate(grids) %>% hyper_tibble()
+# 
+# # numbering of b and z starts from 1 - change
+# dat_temp_hind_ym <- dat_temp_hind_ym %>% 
+#   mutate(b = y - 1, z = x - 1, run = "hind") %>%
+#   select(-x,-y)
+# 
+# dat_temp_hist_ym <- dat_temp_hist_ym %>% 
+#   mutate(b = y - 1, z = x - 1, run = "hist") %>%
+#   select(-x,-y)
+# 
+# dat_ym <- rbind(dat_temp_hind_ym, dat_temp_hist_ym)
+# # view
+# # summarize in space
+# dat_ym %>%
+#   group_by(run,t) %>%
+#   summarize(meantemp = mean(temperature)) %>%
+#   ggplot()+
+#   geom_line(aes(x = t, y = meantemp, color = run), linewidth = 1)+
+#   theme_bw()
+# 
+# # let's plot some random boxes: 
+# # remember: 6 is the sediment, 0 is the layer above the sediment, and then up to the surface
+# 
+# dat_ym %>%
+#   filter(b %in% b_toplot) %>%
+#   ggplot()+
+#   geom_line(aes(x = t, y = temperature, color = factor(z), linetype = run), linewidth = 1)+
+#   theme_bw()+
+#   facet_wrap(~b)
+# 
+# # MONTHLY DELTAS ----------------------------------------------------------
+# monthly_delta_file <- "data/delta/monthly_delta.nc"
+# delta_nc <- nc_open(monthly_delta_file)
+# 
+# # pull variables with tidync
+# temp_delta <- tidync(monthly_delta_file) 
+# 
+# these_vars <- hyper_grids(temp_delta) %>% # all available grids in the ROMS ncdf
+#   pluck("grid") %>% # for each grid, pull out all the variables associated with that grid and make a reference table
+#   purrr::map_df(function(x){
+#     temp_delta %>% activate(x) %>% hyper_vars() %>% 
+#       mutate(grd=x)
+#   })
+# 
+# grids <- these_vars %>% filter(name=="temperature") %>% pluck('grd')
+# 
+# dat_temp_delta <- temp_delta %>% activate(grids) %>% hyper_tibble()
+# 
+# # numbering of b and z starts from 1 - change
+# dat_temp_delta <- dat_temp_delta %>% 
+#   mutate(b = y - 1, z = x - 1) %>%
+#   select(-x,-y)
+# 
+# # view
+# # summarize in space
+# dat_temp_delta %>%
+#   group_by(t) %>%
+#   summarize(meandelta = mean(temperature), linewidth = 1) %>%
+#   ggplot()+
+#   geom_bar(aes(x = t, y = meandelta), stat = "identity")+
+#   theme_bw()
+# 
+# # let's plot some random boxes: 
+# # remember: 6 is the sediment, 0 is the layer above the sediment, and then up to the surface
+# 
+# dat_temp_delta %>%
+#   filter(b %in% b_toplot) %>%
+#   ggplot()+
+#   geom_line(aes(x = t, y = temperature, color = factor(z)), linewidth = 1)+
+#   theme_bw()+
+#   facet_wrap(~b)
 
 # PROJECTIONS -------------------------------------------------------------
 
@@ -184,11 +184,11 @@ dat_temp_delta %>%
 # pick one year and plot it before and after the delta correction
 # changes should be consistent with the delta shown above
 # pre-correction
-original_proj_file <- "data/projection/goa_roms_temp_2081.nc"
+original_proj_file <- "data/projection/goa_roms_temp_2077.nc"
 original_proj_nc <- nc_open(original_proj_file)
 
 # corrected
-corrected_proj_file <- "data/projection_corrected/goa_roms_temp_2081.nc"
+corrected_proj_file <- "data/projection_corrected/goa_roms_temp_2077.nc"
 corrected_proj_nc <- nc_open(corrected_proj_file)
 
 # pull variables with tidync
@@ -232,6 +232,9 @@ dat_proj %>%
   geom_line(aes(x = t, y = temperature, color = factor(z), linetype = run), linewidth = 1)+
   theme_bw()+
   facet_wrap(~b)
+
+nc_close(original_proj_nc)
+nc_close(corrected_proj_nc)
 
 # Everything seems to be working from a coding / algebra standpoint
 # however, it is apparent that this causes some jagged jumps
