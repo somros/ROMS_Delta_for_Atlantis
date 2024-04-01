@@ -17,17 +17,17 @@ library(tidync)
 library(lubridate)
 
 # merge hindcast files
-shell("\"C:\\Users\\Alberto Rovellini\\CDO\\cdo.exe\" mergetime data\\hindcast\\*.nc data\\hindcast\\hindcast_merged.nc")
+# shell("\"C:\\Users\\Alberto Rovellini\\CDO\\cdo.exe\" mergetime data\\hindcast\\temp\\*.nc data\\hindcast\\temp\\hindcast_merged.nc")
 
 # merge the historical
-shell("\"C:\\Users\\Alberto Rovellini\\CDO\\cdo.exe\" mergetime data\\historical\\*.nc data\\historical\\historical_merged.nc")
+# shell("\"C:\\Users\\Alberto Rovellini\\CDO\\cdo.exe\" mergetime data\\historical\\temp\\*.nc data\\historical\\temp\\historical_merged.nc")
 
 # what variable are we handling?
 this_variable <- "temperature"
 
 # files
-hindcast_file <- "data/hindcast/hindcast_merged.nc"
-historical_file <- "data/historical/historical_merged.nc"
+hindcast_file <- "data/hindcast/temp/hindcast_merged.nc"
+historical_file <- "data/historical/temp/historical_merged.nc"
 
 # function that produces the delta arrays
 # there are 4: mean and sd hindcast and historical run per time step for the reference period
@@ -37,23 +37,27 @@ historical_file <- "data/historical/historical_merged.nc"
 # how does that propagate?
 
 # function
-make_delta_array <- function(variable, hindcast=TRUE, mean=TRUE, leap=FALSE){
+make_delta_array <- function(variable, sim_period = "hindcast", mean=TRUE, leap=FALSE){
   
   # variable = "temperature"
-  # hindcast=TRUE
+  # sim_period = "projection"
   # mean=TRUE
   # leap=FALSE
   
   # set file
-  if(hindcast){
+  if(sim_period == "hindcast"){
     this_file <- hindcast_file
-  } else {
+  } else if(sim_period == "historical") {
     this_file <- historical_file
+  } else if(sim_period == "projection") {
+    this_file <- projection_file
+  } else {
+    stop("Check simulation period")
   }
   
   # pull variables with tidync
   temp_nc <- tidync(this_file) 
-
+  
   # list variables
   these_vars <- hyper_grids(temp_nc) %>% # all available grids in the ROMS ncdf
     pluck("grid") %>% # for each grid, pull out all the variables associated with that grid and make a reference table
@@ -73,7 +77,7 @@ make_delta_array <- function(variable, hindcast=TRUE, mean=TRUE, leap=FALSE){
   grids <- these_vars %>% filter(name==variable) %>% pluck('grd')
   
   dat_temp <- temp_nc %>% activate(grids) %>% hyper_tibble()
-
+  
   # numbering of b and z starts from 1 - change
   # and replace time steps with dates
   dat_temp <- dat_temp %>% 
@@ -126,7 +130,7 @@ make_delta_array <- function(variable, hindcast=TRUE, mean=TRUE, leap=FALSE){
     mutate(ts = ifelse(ts == 1, (max(ts)+1), ts)) %>% # put the first time step last
     mutate(ts = ts - 1) %>%
     arrange(ts, b, z) %>%
-    dplyr::select(ts, b, z, temperature)
+    dplyr::select(ts, b, z, all_of(this_variable))
   
   # now turn the data frame into an array with dimensions z,b,t
   # the correct dimensioning is important because we will use element-wise operations for the delta correction of the projection files
@@ -179,7 +183,7 @@ make_delta_array <- function(variable, hindcast=TRUE, mean=TRUE, leap=FALSE){
   # Reshape the data frame to a wider format for each 'ts'
   ts_list <- aggregated_df_complete %>%
     group_by(ts) %>%
-    pivot_wider(names_from = b, values_from = temperature) %>%
+    pivot_wider(names_from = b, values_from = this_variable) %>%
     ungroup() %>%
     split(.$ts)
   
@@ -200,43 +204,43 @@ make_delta_array <- function(variable, hindcast=TRUE, mean=TRUE, leap=FALSE){
 # TODO: set up a table with all combinations of conditions and use purrr::map() or similar
 
 mean_hind <- make_delta_array(variable = this_variable,
-                              hindcast = T,
+                              sim_period = "hindcast",
                               mean = T,
                               leap = F)
 
 # sd_hind <- make_delta_array(variable = this_variable,
-#                               hindcast = T,
+#                               sim_period = "hindcast",
 #                               mean = F,
 #                               leap = F)
 
 mean_hist <- make_delta_array(variable = this_variable,
-                              hindcast = F,
+                              sim_period = "historical",
                               mean = T,
                               leap = F)
 
 # sd_hist <- make_delta_array(variable = this_variable,
-#                               hindcast = F,
+#                               sim_period = "historical",
 #                               mean = F,
 #                               leap = F)
 
 # for leap years
 mean_hind_leap <- make_delta_array(variable = this_variable,
-                              hindcast = T,
-                              mean = T,
-                              leap = T)
+                                   sim_period = "hindcast",
+                                   mean = T,
+                                   leap = T)
 
 # sd_hind_leap <- make_delta_array(variable = this_variable,
-#                             hindcast = T,
+#                             sim_period = "hindcast",
 #                             mean = F,
 #                             leap = T)
 
 mean_hist_leap <- make_delta_array(variable = this_variable,
-                              hindcast = F,
-                              mean = T,
-                              leap = T)
+                                   sim_period = "historical",
+                                   mean = T,
+                                   leap = T)
 
 # sd_hist_leap <- make_delta_array(variable = this_variable,
-#                             hindcast = F,
+#                             sim_period = "historical",
 #                             mean = F,
 #                             leap = T)
 
@@ -252,14 +256,14 @@ mean_hist_leap <- make_delta_array(variable = this_variable,
 # X_proj' = X_hind + ((1/1) * (X_proj - X_hist))
 # Scaling by the ratio of the variances does not work, not on 12-hourly files (some large differences in varainces can make the scalar very big)
 
-proj_files <- list.files("data/projection/", full.names = T)
+proj_files <- list.files("data/ssp245/temp/projection/", full.names = T)
 
 for(i in 1:length(proj_files)){
   
   # point at pre-correction file
   original_proj_file <- proj_files[i]
   # just file name to re-write later
-  fn <- gsub("data/projection/","",original_proj_file)
+  fn <- gsub("data/ssp245/temp/projection/","",original_proj_file)
   
   # open pre-correction file
   original_proj_nc <- nc_open(original_proj_file)
@@ -285,7 +289,7 @@ for(i in 1:length(proj_files)){
   # now re-pack this to nc forcing files in a different folder (bias-corrected)
   # create a new nc file with the dimensions, variables, and attributes of the original one
   # the easiest way to do this is to copy the original file to a new location, open it, modify it, and close it
-  corrected_proj_file <- paste0("data/projection_corrected/",fn)
+  corrected_proj_file <- paste0("data/ssp245/temp/projection_corrected/",fn)
   
   # copy the original necdf file that we are correcting
   file.copy(original_proj_file, corrected_proj_file)
