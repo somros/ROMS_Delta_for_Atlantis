@@ -23,11 +23,11 @@ library(lubridate)
 # shell("\"C:\\Users\\Alberto Rovellini\\CDO\\cdo.exe\" mergetime data\\historical\\temp\\*.nc data\\historical\\temp\\historical_merged.nc")
 
 # what variable are we handling?
-this_variable <- "temperature"
+this_variable <- "salinity"
 
 # files
-hindcast_file <- "data/hindcast/temp/hindcast_merged.nc"
-historical_file <- "data/historical/temp/historical_merged.nc"
+hindcast_file <- "data/hindcast/salt/hindcast_merged.nc"
+historical_file <- "data/historical/salt/historical_merged.nc"
 
 # function that produces the delta arrays
 # there are 4: mean and sd hindcast and historical run per time step for the reference period
@@ -56,31 +56,31 @@ make_delta_array <- function(variable, sim_period = "hindcast", mean=TRUE, leap=
   }
   
   # pull variables with tidync
-  temp_nc <- tidync(this_file) 
+  salt_nc <- tidync(this_file) 
   
   # list variables
-  these_vars <- hyper_grids(temp_nc) %>% # all available grids in the ROMS ncdf
+  these_vars <- hyper_grids(salt_nc) %>% # all available grids in the ROMS ncdf
     pluck("grid") %>% # for each grid, pull out all the variables associated with that grid and make a reference table
     purrr::map_df(function(x){
-      temp_nc %>% activate(x) %>% hyper_vars() %>% 
+      salt_nc %>% activate(x) %>% hyper_vars() %>% 
         mutate(grd=x)
     })
   
   # pull time origin
-  temp_con <- nc_open(this_file)
-  time_units <- ncatt_get(temp_con, "t", "units")$value # get time
-  nc_close(temp_con)
+  salt_con <- nc_open(this_file)
+  time_units <- ncatt_get(salt_con, "t", "units")$value # get time
+  nc_close(salt_con)
   
   file_origin <- as.POSIXct(gsub("seconds since ", "", time_units))
   
   # pull variable
   grids <- these_vars %>% filter(name==variable) %>% pluck('grd')
   
-  dat_temp <- temp_nc %>% activate(grids) %>% hyper_tibble()
+  dat_salt <- salt_nc %>% activate(grids) %>% hyper_tibble()
   
   # numbering of b and z starts from 1 - change
   # and replace time steps with dates
-  dat_temp <- dat_temp %>% 
+  dat_salt <- dat_salt %>% 
     mutate(t = t + file_origin) %>%
     rename(b = y, z = x)
   
@@ -88,38 +88,38 @@ make_delta_array <- function(variable, sim_period = "hindcast", mean=TRUE, leap=
   # the time dimension in the transfromed ROMS forcings has a lot of obnoxious properties
   # The time series begins at 12:00 of Jan 1st
   # leap years cause problems, remove Feb 29 from the data
-  dat_temp <- dat_temp %>%
+  dat_salt <- dat_salt %>%
     mutate(year = year(t),
            month = month(t),
            day = day(t),
            tod  = format(t, "%H:%M:%S")) 
   
   # add a first time step for the correct indexing of the data
-  filler <- dat_temp %>% 
+  filler <- dat_salt %>% 
     filter(year == 1991, month == 1, day == 1) %>%
     mutate(t = t - hours(12),
            tod = format(t, "%H:%M:%S"))
   
-  dat_temp <- rbind(filler, dat_temp) %>%
+  dat_salt <- rbind(filler, dat_salt) %>%
     filter(t < max(t)) # remove very last time step
   
   # remove Feb 29
-  dat_temp <- dat_temp %>%
+  dat_salt <- dat_salt %>%
     filter(!(month == 2 & day == 29))
   
   # group by year, arrange by date, assign a time step
-  dat_temp <- dat_temp %>%
+  dat_salt <- dat_salt %>%
     group_by(year, b, z) %>%
     mutate(ts = row_number()) %>%
     ungroup()
   
   # Group by box, layer, time step, and summarize (mean and sd as separate data frames)
   if(mean){
-    aggregated_df <- dat_temp %>%
+    aggregated_df <- dat_salt %>%
       group_by(b, z, ts) %>%
       summarise(!!sym(variable) := mean(!!sym(variable))) 
   } else {
-    aggregated_df <- dat_temp %>%
+    aggregated_df <- dat_salt %>%
       group_by(b, z, ts) %>%
       summarise(!!sym(variable) := sd(!!sym(variable))) 
   }
@@ -256,14 +256,14 @@ mean_hist_leap <- make_delta_array(variable = this_variable,
 # X_proj' = X_hind + ((1/1) * (X_proj - X_hist))
 # Scaling by the ratio of the variances does not work, not on 12-hourly files (some large differences in varainces can make the scalar very big)
 
-proj_files <- list.files("data/ssp245/temp/projection/", full.names = T)
+proj_files <- list.files("data/ssp585/salt/projection/", full.names = T)
 
 for(i in 1:length(proj_files)){
   
   # point at pre-correction file
   original_proj_file <- proj_files[i]
   # just file name to re-write later
-  fn <- gsub("data/ssp245/temp/projection/","",original_proj_file)
+  fn <- gsub("data/ssp585/salt/projection/","",original_proj_file)
   
   # open pre-correction file
   original_proj_nc <- nc_open(original_proj_file)
@@ -289,10 +289,15 @@ for(i in 1:length(proj_files)){
   # now re-pack this to nc forcing files in a different folder (bias-corrected)
   # create a new nc file with the dimensions, variables, and attributes of the original one
   # the easiest way to do this is to copy the original file to a new location, open it, modify it, and close it
-  corrected_proj_file <- paste0("data/ssp245/temp/projection_corrected/",fn)
+  corrected_proj_file <- paste0("data/ssp585/salt/projection_corrected/",fn)
+  
+  # create the folder
+  if(!dir.exists("data/ssp585/salt/projection_corrected/")){
+    dir.create("data/ssp585/salt/projection_corrected/")
+  }
   
   # copy the original necdf file that we are correcting
-  file.copy(original_proj_file, corrected_proj_file)
+  file.copy(original_proj_file, corrected_proj_file, recursive = T)
   
   # open the new file
   corrected_proj_nc <- nc_open(corrected_proj_file, write = T)

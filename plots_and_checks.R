@@ -27,12 +27,12 @@ cum.depth <- c(1,30,100,200,500,1000,3969)
 
 # for hindcast and historical, make sure you read in the same year(s). Read in the merged files
 # hindcast
-hindcast_file <- "data/hindcast/hindcast_merged.nc"
+hindcast_file <- "data/hindcast/temp/hindcast_merged.nc"
 hindcast_nc <- nc_open(hindcast_file)
 
 # HINDCAST and HISTORICAL -------------------------------------------------
 # historical
-historical_file <- "data/historical/historical_merged.nc"
+historical_file <- "data/historical/temp/historical_merged.nc"
 historical_nc <- nc_open(historical_file)
 
 # pull variables with tidync
@@ -78,7 +78,7 @@ b_toplot <- sample(unique(dat$b), size = 6, replace = T)
 dat %>%
   filter(b %in% b_toplot) %>%
   ggplot()+
-  geom_line(aes(x = t, y = temperature, color = factor(z), linetype = run), linewidth = 1)+
+  geom_line(aes(x = t, y = salinity, color = factor(z), linetype = run), linewidth = 1)+
   theme_bw()+
   facet_wrap(~b)
 
@@ -184,11 +184,11 @@ dat %>%
 # pick one year and plot it before and after the delta correction
 # changes should be consistent with the delta shown above
 # pre-correction
-original_proj_file <- "data/projection/goa_roms_temp_2077.nc"
+original_proj_file <- "data/temp/projection/goa_roms_temp_2077.nc"
 original_proj_nc <- nc_open(original_proj_file)
 
 # corrected
-corrected_proj_file <- "data/projection_corrected/goa_roms_temp_2077.nc"
+corrected_proj_file <- "data/temp/projection_corrected/goa_roms_temp_2077.nc"
 corrected_proj_nc <- nc_open(corrected_proj_file)
 
 # pull variables with tidync
@@ -202,7 +202,7 @@ these_vars <- hyper_grids(temp_o) %>% # all available grids in the ROMS ncdf
       mutate(grd=x)
   })
 
-grids <- these_vars %>% filter(name=="temperature") %>% pluck('grd')
+grids <- these_vars %>% filter(name=="salinity") %>% pluck('grd')
 
 dat_temp_o <- temp_o %>% activate(grids) %>% hyper_tibble()
 dat_temp_c <- temp_c %>% activate(grids) %>% hyper_tibble()
@@ -220,7 +220,7 @@ dat_proj <- rbind(dat_temp_o, dat_temp_c)
 # should weight these averages by cell volume for a better representation, but this is only visual
 dat_proj %>%
   group_by(run,t) %>%
-  summarize(meantemp = mean(temperature), linewidth = 1) %>%
+  summarize(meantemp = mean(salinity), linewidth = 1) %>%
   ggplot()+
   geom_line(aes(x = t, y = meantemp, color = run))+
   theme_bw()
@@ -290,3 +290,172 @@ dat_proj %>%
   theme_bw()+
   facet_wrap(~b)
 
+
+# Future climatology vs heatwave -------------------------------------------------
+# view new 2075-2085 forcing file and compare with the 2014 file used so far
+mean_proj_file <- "data/temp/OY_2075_2084/mean_projection_temperature.nc"
+mean_proj_nc <- nc_open(mean_proj_file)
+
+hindcast_2014_file <- "data/temp/hindcast/goa_roms_temp_2014.nc"
+hindcast_2014_nc <- nc_open(hindcast_2014_file)
+
+# pull variables with tidync
+temp_proj <- tidync(mean_proj_file) 
+temp_2014 <- tidync(hindcast_2014_file) 
+
+these_vars <- hyper_grids(temp_2014) %>% # all available grids in the ROMS ncdf
+  pluck("grid") %>% # for each grid, pull out all the variables associated with that grid and make a reference table
+  purrr::map_df(function(x){
+    temp_2014 %>% activate(x) %>% hyper_vars() %>% 
+      mutate(grd=x)
+  })
+
+grids <- these_vars %>% filter(name=="temperature") %>% pluck('grd')
+
+dat_temp_proj <- temp_proj %>% activate(grids) %>% hyper_tibble()
+dat_temp_2014 <- temp_2014 %>% activate(grids) %>% hyper_tibble()
+
+# numbering of b and z starts from 1 - change
+dat_temp_proj <- dat_temp_proj %>% 
+  mutate(b = b - 1, z = z - 1, run = "proj_2075_2084")
+
+dat_temp_2014 <- dat_temp_2014 %>% 
+  mutate(b = b - 1, z = z - 1, run = "hw_2014")
+
+
+dat_proj <- rbind(dat_temp_proj, dat_temp_2014)
+# view
+# summarize in space
+# should weight these averages by cell volume for a better representation, but this is only visual
+dat_proj %>%
+  group_by(run,t) %>%
+  summarize(meantemp = mean(temperature), linewidth = 1) %>%
+  ggplot()+
+  geom_line(aes(x = t, y = meantemp, color = run))+
+  theme_bw()
+
+# remember: 6 is the sediment, 0 is the layer above the sediment, and then up to the surface
+b_toplot <- sample(unique(dat_proj$b), size = 6, replace = T)
+
+dat_proj %>%
+  filter(b %in% b_toplot) %>%
+  ggplot()+
+  geom_line(aes(x = t, y = temperature, color = factor(z), linetype = run), linewidth = 1)+
+  theme_bw()+
+  facet_wrap(~b)
+
+# ssp245 vs ssp585 -------------------------------------------------
+# view the two 2075-2085 climatologies
+mean_245_file <- "data/ssp245/temp/OY_2075_2084/mean_projection_temperature.nc"
+mean_245_nc <- nc_open(mean_245_file)
+
+mean_585_file <- "data/ssp585/temp/OY_2075_2084/goa_roms_temp_2075_2085.nc"
+mean_585_nc <- nc_open(mean_585_file)
+
+hindcast_2014_file <- "data/hindcast/temp/goa_roms_temp_2014.nc"
+hindcast_2014_nc <- nc_open(hindcast_2014_file)
+
+# pull variables with tidync
+temp_proj_245 <- tidync(mean_245_file) 
+temp_proj_585 <- tidync(mean_585_file) 
+temp_2014 <- tidync(hindcast_2014_file) 
+
+these_vars <- hyper_grids(temp_2014) %>% # all available grids in the ROMS ncdf
+  pluck("grid") %>% # for each grid, pull out all the variables associated with that grid and make a reference table
+  purrr::map_df(function(x){
+    temp_2014 %>% activate(x) %>% hyper_vars() %>% 
+      mutate(grd=x)
+  })
+
+grids <- these_vars %>% filter(name=="temperature") %>% pluck('grd')
+
+dat_temp_proj_245 <- temp_proj_245 %>% activate(grids) %>% hyper_tibble()
+dat_temp_proj_585 <- temp_proj_585 %>% activate(grids) %>% hyper_tibble()
+dat_temp_2014 <- temp_2014 %>% activate(grids) %>% hyper_tibble()
+
+# numbering of b and z starts from 1 - change
+dat_temp_proj_245 <- dat_temp_proj_245 %>% 
+  mutate(b = b - 1, z = z - 1, run = "proj_2075_2084_245")
+
+dat_temp_proj_585 <- dat_temp_proj_585 %>% 
+  mutate(b = b - 1, z = z - 1, run = "proj_2075_2084_585")
+
+dat_temp_2014 <- dat_temp_2014 %>% 
+  mutate(b = b - 1, z = z - 1, run = "hw_2014")
+
+
+dat_proj <- rbind(dat_temp_proj_245, dat_temp_proj_585, dat_temp_2014)
+# view
+# summarize in space
+# should weight these averages by cell volume for a better representation, but this is only visual
+dat_proj %>%
+  group_by(run,t) %>%
+  summarize(meantemp = mean(temperature), linewidth = 1) %>%
+  ggplot()+
+  geom_line(aes(x = t, y = meantemp, color = run))+
+  theme_bw()
+
+# remember: 6 is the sediment, 0 is the layer above the sediment, and then up to the surface
+b_toplot <- sample(unique(dat_proj$b), size = 6, replace = T)
+
+dat_proj %>%
+  filter(b %in% b_toplot) %>%
+  ggplot()+
+  geom_line(aes(x = t, y = temperature, color = factor(z), linetype = run), linewidth = 1)+
+  theme_bw()+
+  facet_wrap(~b)
+
+# now view the full series and compare with the CSV for the other GOACLIM models
+# the full series and compare with the other GOACLIM models
+cont_245_file <- "data/ssp245/temp/OY_2075_2084/proj_merged.nc"
+cont_245_nc <- nc_open(cont_245_file)
+
+cont_585_file <- "data/ssp585/temp/OY_2075_2084/proj_merged.nc"
+cont_585_nc <- nc_open(cont_585_file)
+
+# pull variables with tidync
+temp_proj_245 <- tidync(cont_245_file) 
+temp_proj_585 <- tidync(cont_585_file) 
+
+these_vars <- hyper_grids(temp_proj_245) %>% # all available grids in the ROMS ncdf
+  pluck("grid") %>% # for each grid, pull out all the variables associated with that grid and make a reference table
+  purrr::map_df(function(x){
+    temp_proj_245 %>% activate(x) %>% hyper_vars() %>% 
+      mutate(grd=x)
+  })
+
+grids <- these_vars %>% filter(name=="temperature") %>% pluck('grd')
+
+dat_temp_proj_245 <- temp_proj_245 %>% activate(grids) %>% hyper_tibble()
+dat_temp_proj_585 <- temp_proj_585 %>% activate(grids) %>% hyper_tibble()
+
+# numbering of b and z starts from 1 - change
+dat_temp_proj_245 <- dat_temp_proj_245 %>% 
+  mutate(b = y - 1, z = x - 1, run = "proj_245")
+
+dat_temp_proj_585 <- dat_temp_proj_585 %>% 
+  mutate(b = y - 1, z = x - 1, run = "proj_585")
+
+dat_proj <- rbind(dat_temp_proj_245, dat_temp_proj_585)
+# view
+# summarize in space
+# should weight these averages by cell volume for a better representation, but this is only visual
+dat_proj %>%
+  group_by(run,t) %>%
+  summarize(meantemp = mean(temperature), linewidth = 1) %>%
+  ggplot()+
+  geom_line(aes(x = t, y = meantemp, color = run), linewidth = 1)+
+  theme_bw()
+
+# remember: 6 is the sediment, 0 is the layer above the sediment, and then up to the surface
+b_toplot <- sample(unique(dat_proj$b), size = 6, replace = T)
+
+dat_proj %>%
+  filter(b %in% b_toplot) %>%
+  ggplot()+
+  geom_line(aes(x = t, y = temperature, color = factor(z), linetype = run), linewidth = 1)+
+  theme_bw()+
+  facet_wrap(~b)
+
+# these seem very close to one another in 2075-2085.
+# this is consistent with the indices we got for the other GOACLIM models (those plots for mean overall temp look very similar to this one)
